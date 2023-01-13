@@ -1,8 +1,9 @@
 #!/usr/bin/env python
 
-from setuptools import Command, find_packages, setup
+from setuptools import setup, Command, find_packages
 
-with open('requirements-mbp.txt') as f:
+
+with open('requirements.txt') as f:
     required = f.read().splitlines()
 
 setup(name='unityagents',

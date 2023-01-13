@@ -102,3 +102,6 @@ ENV/
 
 # mypy
 .mypy_cache/
+
+# unity app
+p2_continuous-control/Reacher.app
