@@ -2,23 +2,25 @@
 from collections import deque
 from pathlib import Path
 
-import numpy as np
-from agent import Agent
+from numpy import any, mean, ndarray, zeros
+from reacher.agent import Agent
 from torch import save
 from tqdm import tqdm
 
 
 class DDPG:
-    """Train an agent on an environment."""
+    """Train an agent using an Deep Determenistic Policy Gradient."""
 
     episodes: int = 500
+    # episodes: int = 10
     timesteps: int = 1000
+    # timesteps: int = 500
     scores: list = []
     scores_window: deque = deque(maxlen=100)  # last 100 scores
     checkpoint_dir: Path = Path('.') / 'checkpoints'
     model_dir: Path = Path('.') / 'models'
 
-    def __init__(self, env, brain_name, agent) -> None:
+    def __init__(self, env, brain_name, agent: Agent) -> None:
         """Initialize the Deep Determenistic Policy Gradient class.
 
         Args:
@@ -37,10 +39,14 @@ class DDPG:
 
     def train(self) -> None:
         """Train the agents."""
+        print(f"-> Epsiodes:\t\t\t{self.episodes}")
+        print(f"-> Timesteps (per episode):\t{self.timesteps}")
+
+        self.scores: list = []
+
         progress_bar = tqdm(
             range(1, self.episodes + 1),
-            desc="Training agents"
-        )
+            desc="Training agents")
 
         for episode in progress_bar:
             # reset the environment
@@ -53,7 +59,7 @@ class DDPG:
             self.agent.reset()
 
             # initialize the score (for each agent)
-            scores: np.ndarray = np.zeros(self.num_agents)
+            scores: ndarray = zeros(self.num_agents)
 
             # loop over all time steps
             for timestep in range(self.timesteps):
@@ -81,45 +87,45 @@ class DDPG:
                 scores += rewards
 
                 # exit loop if episode finished
-                if np.any(dones):
+                if any(dones):
                     break
 
             self.save_checkpoints(episode)
 
             # save most recent scores
             self.scores.append(scores)
-            self.scores_window.append(scores)
 
-            # get the mean
-            avg_scores: float = np.mean(self.scores)
-            avg_scores_window: float = np.mean(self.scores_window)
+            # update the progress bar
             progress_bar.set_description(
-                f"Training progress: {avg_scores:.2f} / {avg_scores_window:.2f}")
+                f"Training progress: ({mean(scores):.4f})")
+
+        return self.scores
 
     def save_checkpoints(self, episode) -> None:
-        """Save the agents."""
+        """Save a checkpoint of the actor and critic."""
         if episode % 10 == 0:
+
             save(
                 self.agent.local_actor.state_dict(),
-                self.checkpoint_dir / f'actor-{episode}.pth'
+                self.checkpoint_dir / 'actors' / f'{episode}.pth'
             )
             save(
                 self.agent.local_critic.state_dict(),
-                self.checkpoint_dir / f'critic-{episode}.pth'
+                self.checkpoint_dir / 'critics' / f'{episode}.pth'
             )
 
     def save_models(self) -> None:
-        """Save the agents."""
+        """Save the actor and critic."""
         # save the actor
         save(
             {
                 'state_size': self.agent.state_size,
                 'action_size': self.agent.action_size,
-                'fc1_units': self.agent.actor_local.fc1_units,
-                'fc2_units': self.agent.actor_local.fc2_units,
-                'state_dict': self.agent.actor_local.state_dict()
+                'fc1_units': self.agent.local_actor.fc1_units,
+                'fc2_units': self.agent.local_actor.fc2_units,
+                'state_dict': self.agent.local_actor.state_dict()
             },
-            self.model_dir / 'saved_model_actor.pth'
+            self.model_dir / 'actor.pth'
         )
 
         # save the critic
@@ -131,5 +137,8 @@ class DDPG:
                 'fc2_units': self.agent.local_critic.fc2_units,
                 'state_dict': self.agent.local_critic.state_dict()
             },
-            self.model_dir / 'saved_model_critic.pth'
+            self.model_dir / 'critic.pth'
         )
+
+        # for convenient method chaining
+        return self

@@ -1,6 +1,6 @@
 """Critic (Value) Model."""
 
-from torch import cat, manual_seed
+from torch import cat
 from torch.nn import BatchNorm1d, Linear, Module
 from torch.nn.init import calculate_gain, xavier_uniform_
 
@@ -8,10 +8,11 @@ from torch.nn.init import calculate_gain, xavier_uniform_
 class Critic(Module):
     """Critic (Value) Model."""
 
-    def __init__(self, state_size, action_size, seed, fc1_units=400, fc2_units=300) -> None:
+    def __init__(self, state_size: int, action_size: int, seed: int,
+                 fc1_units=400, fc2_units=300) -> None:
         """Initialize parameters and build model."""
-        super(Critic, self).__init__()
-        self.seed = manual_seed(seed)
+        super().__init__()
+        self.seed: int = seed
 
         # TODO
         self.fc1_units: int = fc1_units
@@ -23,7 +24,7 @@ class Critic(Module):
 
         # layers
         self.fcs1: Linear = Linear(state_size, fc1_units)
-        self.fc2: Linear = Linear(fc1_units+action_size, fc2_units)
+        self.fc2: Linear = Linear(fc1_units + action_size, fc2_units)
         self.fc3: Linear = Linear(fc2_units, 1)
         self.bn1: BatchNorm1d = BatchNorm1d(fc1_units)
 

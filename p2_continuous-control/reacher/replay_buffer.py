@@ -10,22 +10,25 @@ from torch import Tensor, from_numpy
 class ReplayBuffer:
     """Fixed-size buffer to store experience tuples."""
 
-    def __init__(self, action_size, buffer_size, batch_size, seed, device):
+    def __init__(self, action_size, buffer_size, batch_size, seed: int, device) -> None:
         """Initialize a ReplayBuffer object."""
         self.action_size = action_size
-        self.memory = deque(maxlen=buffer_size)  # internal memory (deque)
+        self.memory = deque(maxlen=buffer_size)
         self.batch_size = batch_size
-        self.experience = namedtuple("Experience",
-                                     field_names=["state", "action", "reward",
-                                                  "next_state", "done"])
-        self.seed = random.seed(seed)
+        self.experience = namedtuple("Experience", field_names=[
+                                     "state", "action", "reward", "next_state", "done"])
+        self.seed: int = seed
         self.device = device
 
     def add(self, states, actions, rewards, next_states, dones):
         """Add a new experience to memory."""
-        for i in range(len(states)):
-            e = self.experience(states[i], actions[i], rewards[i],
-                                next_states[i], dones[i])
+        for i, _ in enumerate(states):
+            e = self.experience(
+                states[i],
+                actions[i],
+                rewards[i],
+                next_states[i],
+                dones[i])
             self.memory.append(e)
 
     def sample(self):

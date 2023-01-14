@@ -8,7 +8,8 @@ from torch.nn.init import calculate_gain, xavier_uniform_
 class Actor(Module):
     """Actor (Policy) Model."""
 
-    def __init__(self, state_size, action_size, seed, fc1_units=400, fc2_units=300) -> None:
+    def __init__(self, state_size: int, action_size: int, seed: int,
+                 fc1_units=400, fc2_units=300) -> None:
         """Initialize parameters and build model.
 
         Args:
@@ -18,14 +19,14 @@ class Actor(Module):
             fc1_units (int, optional): _description_. Defaults to 400.
             fc2_units (int, optional): _description_. Defaults to 300.
         """
-        super(Actor, self).__init__()
+        super().__init__()
         self.seed = manual_seed(seed)
 
-        # TODO
+        # out_features on the fully connected layers
         self.fc1_units: int = fc1_units
         self.fc2_units: int = fc2_units
 
-        # weight initialization gains
+        # initialize weight gains
         self.relu_gain = calculate_gain('relu')
         self.tanh_gain = calculate_gain('tanh')
 
