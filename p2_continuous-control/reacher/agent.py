@@ -1,4 +1,7 @@
 """Interacts with and learns from the environment."""
+from configparser import ConfigParser
+from pathlib import Path
+from random import seed
 
 import torch.optim as optim
 from numpy import clip
@@ -6,7 +9,7 @@ from reacher.actor import Actor
 from reacher.critic import Critic
 from reacher.ou_noise import OUNoise
 from reacher.replay_buffer import ReplayBuffer
-from torch import Tensor, from_numpy, load, no_grad
+from torch import Tensor, from_numpy, load, manual_seed, no_grad
 from torch.nn.functional import mse_loss
 from torch.nn.utils import clip_grad_norm_
 
@@ -14,46 +17,51 @@ from torch.nn.utils import clip_grad_norm_
 class Agent():
     """Interacts with and learns from the environment."""
 
-    # define the constants
-    buffer_size: int = int(1e5)
-    batch_size: int = 128
-    gamma: float = 0.99
-    tau: float = 1e-3
-    lr_actor: float = 1e-4
-    lr_critic: float = 1e-3
-    weight_decay: int = 0
-    sigma: float = 0.1
+    dir_assets: Path = Path('.') / 'assets'
 
     def __init__(
-            self, state_size: int, action_size: int, seed: int, device) -> None:
+            self, state_size: int, action_size: int, device) -> None:
         """Initialize an Agent object.
 
         Args:
             state_size (_type_): _description_
             action_size (_type_): _description_
-            seed (_type_): _description_
             device (_type_): _description_
         """
+        # load the configuration
+        self.__load_configuration()
+        print(f"--> Agent: buffer_size: {self.buffer_size}")
+        print(f"--> Agent: batch_size: {self.batch_size}")
+        print(f"--> Agent: gamma: {self.gamma}")
+        print(f"--> Agent: tau: {self.tau}")
+        print(f"--> Agent: lr_actor: {self.lr_actor}")
+        print(f"--> Agent: lr_critic: {self.lr_critic}")
+        print(f"--> Agent: weight_decay: {self.weight_decay}")
+        print(f"--> Agent: sigma: {self.sigma}")
+
         self.state_size: int = state_size
         self.action_size: int = action_size
-        self.seed: int = seed
         self.device = device
 
         # Initialize the actor networks (local / target)
         self.local_actor: Actor = Actor(
-            state_size, action_size, seed).to(
-            self.device)
+            state_size, action_size).to(
+            self.device
+        )
         self.target_actor: Actor = Actor(
-            state_size, action_size, seed).to(
-            self.device)
+            state_size, action_size).to(
+            self.device
+        )
 
         # Initialize the critic networks (local / target)
         self.local_critic: Critic = Critic(
-            state_size, action_size, seed).to(
-            self.device)
+            state_size, action_size).to(
+            self.device
+        )
         self.target_critic: Critic = Critic(
-            state_size, action_size, seed).to(
-            self.device)
+            state_size, action_size).to(
+            self.device
+        )
 
         # define the optimizers (actor / critic)
         self.local_actor_optimizer = optim.Adam(
@@ -67,11 +75,53 @@ class Agent():
         )
 
         # Make some noise
-        self.noise: OUNoise = OUNoise(action_size, seed, sigma=self.sigma)
+        self.noise: OUNoise = OUNoise(
+            action_size,
+            sigma=self.sigma
+        )
 
         # define the replay buffer
         self.memory: ReplayBuffer = ReplayBuffer(
-            action_size, self.buffer_size, self.batch_size, seed, self.device)
+            action_size,
+            self.buffer_size,
+            self.batch_size,
+            self.device
+        )
+
+    def __load_configuration(self) -> None:
+        """Load the configuration from the config.ini file."""
+        config: ConfigParser = ConfigParser()
+        config.read(self.dir_assets / 'config.ini')
+
+        self.buffer_size: int = config.getint(
+            'agent', 'buffer_size', fallback=100000
+        )
+        self.batch_size: int = config.getint(
+            'agent', 'batch_size', fallback=128
+        )
+        self.gamma: float = config.getfloat(
+            'agent', 'gamma', fallback=0.99
+        )
+        self.tau: float = config.getfloat(
+            'agent', 'tau', fallback=0.001
+        )
+        self.lr_actor: float = config.getfloat(
+            'agent', 'lr_actor', fallback=0.001
+        )
+        self.lr_critic: float = config.getfloat(
+            'agent', 'lr_critic', fallback=0.001
+        )
+        self.weight_decay: int = config.getint(
+            'agent', 'weight_decay', fallback=0
+        )
+        self.sigma: float = config.getfloat(
+            'agent', 'sigma', fallback=0.1
+        )
+        self.seed: int = config.getint(
+            'agent', 'seed', fallback=1234
+        )
+        seed(self.seed)
+        manual_seed(self.seed)
 
     def step(self, states, actions, rewards, next_states, dones) -> None:
         """Save experience in replay memory.
@@ -105,15 +155,19 @@ class Agent():
         state: Tensor = from_numpy(state).float().to(self.device)
         self.local_actor.eval()
 
+        # assign the state to the local actor
         with no_grad():
-            action = self.local_actor(state).cpu().data.numpy()
+            actions = self.local_actor(state).cpu().data.numpy()
 
+        # train the neural network
         self.local_actor.train()
 
+        # add some noise to the actions
         if add_noise:
-            action += self.noise.sample()
+            actions += self.noise.sample()
 
-        return clip(action, -1.0, 1.0)
+        # clip the actions are between -1 and 1
+        return clip(actions, -1.0, 1.0)
 
     def reset(self) -> None:
         """Reset the noise to mean (mu)."""
@@ -186,10 +240,7 @@ class Agent():
         self.local_actor: Actor = Actor(
             state_size=saved_model['state_size'],
             action_size=saved_model['action_size'],
-            seed=2,
-            fc1_units=saved_model['fc1_units'],
-            fc2_units=saved_model['fc2_units']
         ).to(self.device)
 
         # assign the weights
-        self.actor_local.load_state_dict(saved_model['state_dict'])
+        self.local_actor.load_state_dict(saved_model['state_dict'])

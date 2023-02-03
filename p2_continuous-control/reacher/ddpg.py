@@ -1,5 +1,7 @@
 """Train the agent."""
 from collections import deque
+from configparser import ConfigParser
+from datetime import datetime
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -13,12 +15,12 @@ from tqdm import tqdm
 class DDPG:
     """Train an agent using an Deep Determenistic Policy Gradient."""
 
-    episodes: int = 200
-    timesteps: int = 1000
     scores: list = []
     scores_window: deque = deque(maxlen=100)  # last 100 scores
-    checkpoint_dir: Path = Path('.') / 'checkpoints'
-    model_dir: Path = Path('.') / 'models'
+    dir_checkpoint: Path = Path('.') / 'checkpoints'
+    dir_models: Path = Path('.') / 'models'
+    dir_assets: Path = Path('.') / 'assets'
+    timestamp = ""
 
     def __init__(self, env, brain_name, agent: Agent) -> None:
         """Initialize the Deep Determenistic Policy Gradient class.
@@ -30,6 +32,9 @@ class DDPG:
             episodes (int, optional): _description_. Defaults to 500.
             timesteps (int, optional): _description_. Defaults to 1000.
         """
+        # load the configuration
+        self.__load_configuration()
+
         self.env = env
         self.brain_name = brain_name
         self.agent: Agent = agent
@@ -37,16 +42,30 @@ class DDPG:
         env_info = self.env.reset(train_mode=True)[self.brain_name]
         self.num_agents: int = len(env_info.agents)
 
+    def __load_configuration(self) -> None:
+        """Load the configuration from the config.ini file."""
+        config: ConfigParser = ConfigParser()
+        config.read(self.dir_assets / 'config.ini')
+
+        self.episodes: int = config.getint(
+            'ddpg', 'episodes', fallback=100
+        )
+        self.timesteps: int = config.getint(
+            'ddpg', 'timesteps', fallback=100
+        )
+
     def train(self) -> None:
         """Train the agents."""
         print(f"-> Epsiodes:\t\t\t{self.episodes}")
         print(f"-> Timesteps (per episode):\t{self.timesteps}")
 
         self.scores: list = []
+        self.timestamp: str = datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
 
         progress_bar = tqdm(
             range(1, self.episodes + 1),
-            desc="Training agents")
+            desc="Training agents"
+        )
 
         for episode in progress_bar:
             # reset the environment
@@ -75,8 +94,10 @@ class DDPG:
                 rewards = env_info.rewards
                 dones = env_info.local_done
 
-                # Save experience in replay memory
+                # save experience in replay memory
                 self.agent.step(states, actions, rewards, next_states, dones)
+
+                # update after 20 steps.
                 if timestep % 20 == 0:
                     self.agent.sample_and_learn()
 
@@ -99,6 +120,10 @@ class DDPG:
             progress_bar.set_description(
                 f"Training progress: ({mean(scores):.4f})")
 
+        # generate the plots
+        self.plot_scores(self.scores)
+        self.plot_scores_avg(self.scores)
+
         return self.scores
 
     def save_checkpoints(self, episode) -> None:
@@ -107,11 +132,11 @@ class DDPG:
 
             save(
                 self.agent.local_actor.state_dict(),
-                self.checkpoint_dir / 'actors' / f'{episode}.pth'
+                self.dir_checkpoint / 'actors' / f'{episode}.pth'
             )
             save(
                 self.agent.local_critic.state_dict(),
-                self.checkpoint_dir / 'critics' / f'{episode}.pth'
+                self.dir_checkpoint / 'critics' / f'{episode}.pth'
             )
 
     def save_models(self) -> None:
@@ -125,7 +150,7 @@ class DDPG:
                 'fc2_units': self.agent.local_actor.fc2_units,
                 'state_dict': self.agent.local_actor.state_dict()
             },
-            self.model_dir / 'actor.pth'
+            self.dir_models / 'actor.pth'
         )
 
         # save the critic
@@ -137,16 +162,17 @@ class DDPG:
                 'fc2_units': self.agent.local_critic.fc2_units,
                 'state_dict': self.agent.local_critic.state_dict()
             },
-            self.model_dir / 'critic.pth'
+            self.dir_models / 'critic.pth'
         )
 
         # for convenient method chaining
         return self
 
-    def plot_training_history(self) -> None:
+    def plot_scores(self, scores) -> None:
         """Plot the training history."""
-        plt.plot(np.arange(len(self.scores)), self.scores)
-        plt.title('Training history')
+        plt.figure()
+        plt.plot(np.arange(len(scores)), scores)
+        plt.title(f'{self.timestamp} | Training history')
         plt.ylabel('Score')
         plt.xlabel('Episode')
         plt.legend(
@@ -154,47 +180,63 @@ class DDPG:
             loc='center left',
             bbox_to_anchor=(1, 0.5)
         )
-        plt.show()
+        plt.savefig(
+            self.dir_assets / f"scores_{self.timestamp}.png",
+            format="png",
+            bbox_inches='tight'
+        )
+        plt.savefig(
+            self.dir_assets / "scores_latest.png",
+            format="png",
+            bbox_inches='tight'
+        )
 
-    def plot_average_scores(self, window_size: int = 100) -> None:
-        """Plot the average scores, at a certain window.
+    def plot_scores_avg(self, scores, window_size: int = 100) -> None:
+        """Plot the average training history.
 
         Args:
+            scores (_type_): _description_
             window_size (int, optional): _description_. Defaults to 100.
         """
-        # calculate the average scores
-        avg_scores = np.array(self.scores).mean(axis=1)
-
-        # calculate the average scores on a certain window
-        avg_scores_window: list = [
+        # get the average scores
+        avg_scores = np.array(scores).mean(axis=1)
+        avg_scores_window = [
             np.mean(avg_scores[max(0, i - window_size): i + 1])
             for i in range(len(avg_scores))
         ]
 
         # plot the scores
-        fig = plt.figure()
-        ax = fig.add_subplot(111)
+        plt.figure()
         plt.plot(
-            np.arange(1, len(self.scores) + 1),
+            np.arange(1, len(scores) + 1),
             avg_scores,
-            label="window size 1"
+            label="window = 1"
         )
         plt.plot(
-            np.arange(1, len(self.scores) + 1),
+            np.arange(1, len(scores) + 1),
             avg_scores_window,
-            label=f"window size {window_size}"
+            label=f"window = {window_size}"
         )
-        plt.plot(
-            np.arange(1, len(self.scores) + 1),
-            [30] * len(self.scores),
-            linestyle='--',
-            color='red'
+        plt.hlines(
+            y=30,
+            xmin=0,
+            xmax=self.episodes,
+            colors='red',
+            linestyles='dotted',
+            label='goal'
         )
-        plt.title('Training history | average scores')
-        plt.ylabel('Average Score')
+        plt.title(f'{self.timestamp} | Training history | Average Score')
+        plt.ylabel('Score')
         plt.xlabel('Episode')
-        plt.legend(
-            loc='center left',
-            bbox_to_anchor=(1, 0.5)
+        plt.legend()
+        plt.savefig(
+            self.dir_assets / f"scores_avg_{self.timestamp}.png",
+            format="png",
+            bbox_inches='tight'
+        )
+        plt.savefig(
+            self.dir_assets / "scores_avg_latest.png",
+            format="png",
+            bbox_inches='tight'
         )
         plt.show()

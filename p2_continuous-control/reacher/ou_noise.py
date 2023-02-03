@@ -11,12 +11,11 @@ class OUNoise:
 
     state = None
 
-    def __init__(self, size, seed, mu=0., theta=0.15, sigma=0.2) -> None:
+    def __init__(self, size, mu=0., theta=0.15, sigma=0.2) -> None:
         """Initialize parameters and noise process.
 
         Args:
             size (_type_): _description_
-            seed (_type_): _description_
             mu (_type_, optional): _description_. Defaults to 0..
             theta (float, optional): _description_. Defaults to 0.15.
             sigma (float, optional): _description_. Defaults to 0.2.
@@ -24,7 +23,6 @@ class OUNoise:
         self.mu: ndarray = mu * ones(size)
         self.theta: float = theta
         self.sigma: float = sigma
-        self.seed = seed
         self.reset()
 
     def reset(self) -> None:

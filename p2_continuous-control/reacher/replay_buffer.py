@@ -11,14 +11,13 @@ class ReplayBuffer:
     """Buffer to store experience."""
 
     def __init__(self, action_size: int, buffer_size: int, batch_size: int,
-                 seed: int, device) -> None:
+                 device) -> None:
         """Initialize a ReplayBuffer object.
 
         Args:
             action_size (int): _description_
             buffer_size (int): _description_
             batch_size (int): _description_
-            seed (int): _description_
             device (_type_): _description_
         """
         self.action_size = action_size
@@ -28,7 +27,6 @@ class ReplayBuffer:
             "Experience",
             field_names=["state", "action", "reward", "next_state", "done"]
         )
-        self.seed: int = seed
         self.device = device
 
     def add(self, states, actions, rewards, next_states, dones) -> None:
