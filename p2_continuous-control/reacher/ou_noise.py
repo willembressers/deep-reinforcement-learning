@@ -9,6 +9,8 @@ from numpy import array, ndarray, ones
 class OUNoise:
     """Ornstein-Uhlenbeck process."""
 
+    state = None
+
     def __init__(self, size, seed, mu=0., theta=0.15, sigma=0.2) -> None:
         """Initialize parameters and noise process.
 
@@ -22,20 +24,21 @@ class OUNoise:
         self.mu: ndarray = mu * ones(size)
         self.theta: float = theta
         self.sigma: float = sigma
-        self.seed = random.seed(seed)
+        self.seed = seed
         self.reset()
 
     def reset(self) -> None:
-        """Reset the internal state (= noise) to mean (mu)."""
+        """Reset the noise to mu."""
         self.state = copy.copy(self.mu)
 
     def sample(self) -> ndarray:
-        """Update internal state and return it as a noise sample.
+        """Add a delta (based on theta, mu, sigma) and add it to the noise.
 
         Returns:
             ndarray: _description_
         """
         x: ndarray = self.state
-        dx: ndarray = self.theta * (self.mu - x) + self.sigma * array([random.random() for i in range(len(x))])
+        dx: ndarray = self.theta * (self.mu - x) + self.sigma * array(
+            [random.random() for i in range(len(x))])
         self.state: ndarray = x + dx
         return self.state

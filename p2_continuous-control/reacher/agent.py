@@ -14,7 +14,7 @@ from torch.nn.utils import clip_grad_norm_
 class Agent():
     """Interacts with and learns from the environment."""
 
-    # define some constants
+    # define the constants
     buffer_size: int = int(1e5)
     batch_size: int = 128
     gamma: float = 0.99
@@ -183,7 +183,7 @@ class Agent():
         saved_model = load(filepath)
 
         # create a new local actor
-        self.actor_local: Actor = Actor(
+        self.local_actor: Actor = Actor(
             state_size=saved_model['state_size'],
             action_size=saved_model['action_size'],
             seed=2,

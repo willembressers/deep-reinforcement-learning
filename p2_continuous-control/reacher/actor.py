@@ -30,7 +30,7 @@ class Actor(Module):
         self.relu_gain = calculate_gain('relu')
         self.tanh_gain = calculate_gain('tanh')
 
-        # layers
+        # internal layers
         self.fc1: Linear = Linear(state_size, fc1_units)
         self.fc2: Linear = Linear(fc1_units, fc2_units)
         self.fc3: Linear = Linear(fc2_units, action_size)

@@ -2,6 +2,8 @@
 from collections import deque
 from pathlib import Path
 
+import matplotlib.pyplot as plt
+import numpy as np
 from numpy import any, mean, ndarray, zeros
 from reacher.agent import Agent
 from torch import save
@@ -11,10 +13,8 @@ from tqdm import tqdm
 class DDPG:
     """Train an agent using an Deep Determenistic Policy Gradient."""
 
-    episodes: int = 500
-    # episodes: int = 10
+    episodes: int = 200
     timesteps: int = 1000
-    # timesteps: int = 500
     scores: list = []
     scores_window: deque = deque(maxlen=100)  # last 100 scores
     checkpoint_dir: Path = Path('.') / 'checkpoints'
@@ -142,3 +142,59 @@ class DDPG:
 
         # for convenient method chaining
         return self
+
+    def plot_training_history(self) -> None:
+        """Plot the training history."""
+        plt.plot(np.arange(len(self.scores)), self.scores)
+        plt.title('Training history')
+        plt.ylabel('Score')
+        plt.xlabel('Episode')
+        plt.legend(
+            [f"Reacher: {i}" for i in range(1, self.num_agents + 1)],
+            loc='center left',
+            bbox_to_anchor=(1, 0.5)
+        )
+        plt.show()
+
+    def plot_average_scores(self, window_size: int = 100) -> None:
+        """Plot the average scores, at a certain window.
+
+        Args:
+            window_size (int, optional): _description_. Defaults to 100.
+        """
+        # calculate the average scores
+        avg_scores = np.array(self.scores).mean(axis=1)
+
+        # calculate the average scores on a certain window
+        avg_scores_window: list = [
+            np.mean(avg_scores[max(0, i - window_size): i + 1])
+            for i in range(len(avg_scores))
+        ]
+
+        # plot the scores
+        fig = plt.figure()
+        ax = fig.add_subplot(111)
+        plt.plot(
+            np.arange(1, len(self.scores) + 1),
+            avg_scores,
+            label="window size 1"
+        )
+        plt.plot(
+            np.arange(1, len(self.scores) + 1),
+            avg_scores_window,
+            label=f"window size {window_size}"
+        )
+        plt.plot(
+            np.arange(1, len(self.scores) + 1),
+            [30] * len(self.scores),
+            linestyle='--',
+            color='red'
+        )
+        plt.title('Training history | average scores')
+        plt.ylabel('Average Score')
+        plt.xlabel('Episode')
+        plt.legend(
+            loc='center left',
+            bbox_to_anchor=(1, 0.5)
+        )
+        plt.show()

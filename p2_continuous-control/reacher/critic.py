@@ -13,8 +13,6 @@ class Critic(Module):
         """Initialize parameters and build model."""
         super().__init__()
         self.seed: int = seed
-
-        # TODO
         self.fc1_units: int = fc1_units
         self.fc2_units: int = fc2_units
 
@@ -22,7 +20,7 @@ class Critic(Module):
         self.relu_gain = calculate_gain('relu')
         self.linear_gain = calculate_gain('linear')
 
-        # layers
+        # internal layers
         self.fcs1: Linear = Linear(state_size, fc1_units)
         self.fc2: Linear = Linear(fc1_units + action_size, fc2_units)
         self.fc3: Linear = Linear(fc2_units, 1)

@@ -8,31 +8,50 @@ from torch import Tensor, from_numpy
 
 
 class ReplayBuffer:
-    """Fixed-size buffer to store experience tuples."""
+    """Buffer to store experience."""
 
-    def __init__(self, action_size, buffer_size, batch_size, seed: int, device) -> None:
-        """Initialize a ReplayBuffer object."""
+    def __init__(self, action_size: int, buffer_size: int, batch_size: int,
+                 seed: int, device) -> None:
+        """Initialize a ReplayBuffer object.
+
+        Args:
+            action_size (int): _description_
+            buffer_size (int): _description_
+            batch_size (int): _description_
+            seed (int): _description_
+            device (_type_): _description_
+        """
         self.action_size = action_size
         self.memory = deque(maxlen=buffer_size)
         self.batch_size = batch_size
-        self.experience = namedtuple("Experience", field_names=[
-                                     "state", "action", "reward", "next_state", "done"])
+        self.experience = namedtuple(
+            "Experience",
+            field_names=["state", "action", "reward", "next_state", "done"]
+        )
         self.seed: int = seed
         self.device = device
 
-    def add(self, states, actions, rewards, next_states, dones):
-        """Add a new experience to memory."""
+    def add(self, states, actions, rewards, next_states, dones) -> None:
+        """Add experience to memory.
+
+        Args:
+            states (_type_): _description_
+            actions (_type_): _description_
+            rewards (_type_): _description_
+            next_states (_type_): _description_
+            dones (_type_): _description_
+        """
         for i, _ in enumerate(states):
-            e = self.experience(
+            self.memory.append(self.experience(
                 states[i],
                 actions[i],
                 rewards[i],
                 next_states[i],
-                dones[i])
-            self.memory.append(e)
+                dones[i]
+            ))
 
-    def sample(self):
-        """Randomly sample a batch of experiences from memory."""
+    def sample(self) -> tuple[Tensor, Tensor, Tensor, Tensor, Tensor]:
+        """Randomly sample from memory."""
         experiences = random.sample(self.memory, k=self.batch_size)
 
         states: Tensor = from_numpy(vstack(
@@ -57,6 +76,6 @@ class ReplayBuffer:
 
         return (states, actions, rewards, next_states, dones)
 
-    def __len__(self):
+    def __len__(self) -> int:
         """Return the current size of internal memory."""
         return len(self.memory)
