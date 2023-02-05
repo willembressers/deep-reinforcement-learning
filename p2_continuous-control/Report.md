@@ -27,7 +27,7 @@ Ornstein-Uhlenbeck noise is a type of stochastic noise that is used to encourage
 ### Training
 Here is an example of the initial agent that makes random decisions each time.
 
-[![Random Agent](http://img.youtube.com/vi/0sAU8G-GJEA/0.jpg)](http://www.youtube.com/watch?v=0sAU8G-GJEA "Random Agent")
+[![Random Agent](http://img.youtube.com/vi/0sAU8G-GJEA/0.jpg)](http://www.youtube.com/watch?v=0sAU8G-GJEA "Random Agent - (Click to Watch!)")
 
 The agent is set to train for 500 episodes, where in each episode 1000 timesteps will be made. As mentioned before, every 20th timestep the agent will sample from the replay buffer and update the target 'Actor' and 'Critic' for futher improvements.
 
@@ -43,7 +43,7 @@ The average scores (blue line) climbs much more steeply but is also much more ir
 
 Here is my trained agent in action.
 
-[![Trained agent](http://img.youtube.com/vi/8bfbBXvRp6I/0.jpg)](http://www.youtube.com/watch?v=8bfbBXvRp6I "Trained agent")
+[![Trained agent](http://img.youtube.com/vi/8bfbBXvRp6I/0.jpg)](http://www.youtube.com/watch?v=8bfbBXvRp6I "Trained agent - (Click to Watch!)")
 
 ### Hyperparameters
 The model was trained many times over, each time the hyperparameters where shifted slightly. In the beginning i kept a close eye on the incrementation of the average score (during training). Once i was confident that the agent was generating scores, i kept playing with different hyperparameter settings. In the end, the most that helped whas more episodes with a larger amount of timestemps.
