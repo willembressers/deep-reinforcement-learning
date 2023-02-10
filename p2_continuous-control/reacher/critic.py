@@ -10,7 +10,7 @@ from torch.nn.init import calculate_gain, xavier_uniform_
 class Critic(Module):
     """Critic (Value) Model."""
 
-    dir_assets: Path = Path('.') / 'assets'
+    dir_assets: Path = Path(".") / "assets"
 
     def __init__(self, state_size: int, action_size: int) -> None:
         """Initialize parameters and build model.
@@ -26,8 +26,8 @@ class Critic(Module):
         print(f"--> Critic: fc2_units: {self.fc2_units}")
 
         # initialize weight gains
-        self.relu_gain = calculate_gain('relu')
-        self.linear_gain = calculate_gain('linear')
+        self.relu_gain = calculate_gain("relu")
+        self.linear_gain = calculate_gain("linear")
 
         # layers
         self.fc1: Linear = Linear(state_size, self.fc1_units)
@@ -40,14 +40,10 @@ class Critic(Module):
     def __load_configuration(self) -> None:
         """Load the configuration from the config.ini file."""
         config: ConfigParser = ConfigParser()
-        config.read(self.dir_assets / 'config.ini')
+        config.read(self.dir_assets / "config.ini")
 
-        self.fc1_units: int = config.getint(
-            'critic', 'fc1_units', fallback=256
-        )
-        self.fc2_units: int = config.getint(
-            'critic', 'fc2_units', fallback=128
-        )
+        self.fc1_units: int = config.getint("critic", "fc1_units", fallback=256)
+        self.fc2_units: int = config.getint("critic", "fc2_units", fallback=128)
 
     def reset_parameters(self) -> None:
         """Reset the weight paramaters by uniformal distribution."""

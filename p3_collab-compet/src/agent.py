@@ -1,44 +1,72 @@
-"""Interacts with and learns from the environment."""
-import configparser
+"""This file contains the Agent class, which will interact with its environment."""
 import pathlib
+from types import SimpleNamespace
 
-import numpy as np
+import torch
+from numpy import clip, ndarray
+from numpy.random import randn
+from src.actor import Actor
+from src.critic import Critic
+from src.ou_noise import OUNoise
+from torch import device
 
 
-class Agent():
-    """Interacts with and learns from the environment."""
+class Agent:
+    """An Agent will learn and interact with the environment."""
 
-    def __init__(
-            self, state_size: int, action_size: int, num_agents: int) -> None:
+    local: SimpleNamespace = SimpleNamespace()
+    target: SimpleNamespace = SimpleNamespace()
+
+    def __init__(self, state_size: int, action_size: int, device: device) -> None:
         """Initialize the agent.
 
         Args:
-            state_size (int): _description_
-            action_size (int): _description_
-            num_agents (int): _description_
+            state_size (int): Describes the size of the state space.
+            action_size (int): Describes the size of the action space.
+            device (device): Describes the processor to run on.
         """
         self.state_size: int = state_size
         self.action_size: int = action_size
-        self.num_agents: int = num_agents
+        self.device: device = device
 
-        # load the configuration from the config.ini file
-        self.config = configparser.ConfigParser()
-        self.config.read(pathlib.Path('.') / 'assets' / 'config.ini')
+        # Initialize the local networks
+        self.local.actor: Actor = Actor(state_size, action_size).to(self.device)
+        self.local.critic: Critic = Critic(state_size, action_size).to(self.device)
 
-        print(self.config)
+        # Make some noise
+        self.noise: OUNoise = OUNoise(action_size)
 
-    def act(self, states, add_noise=True):
-        """Act on the given states.
+    def act(self, state: ndarray, add_noise=True) -> ndarray:
+        """Act on the given state.
 
         Args:
-            states (_type_): _description_
+            state (ndarray): The current state of the environment.
             add_noise (bool, optional): _description_. Defaults to True.
 
         Returns:
-            _type_: _description_
+            ndarray: a 2d (movement, jumping) array describing the action of the agent.
         """
-        # select an action (for each agent)
-        actions = np.random.randn(self.num_agents, self.action_size)
-        actions = np.clip(actions, -1, 1)
+        # select a random action
+        action: ndarray = randn(self.action_size)
 
-        return actions
+        # clip the actions are between -1 and 1
+        return clip(action, -1.0, 1.0)
+
+    def reset(self) -> None:
+        """Reset the noise to mean (mu)."""
+        self.noise.reset()
+
+    def save(self, subdir: str, index: int) -> None:
+        """Save the actor and critic networks.
+
+        Args:
+            index (int): An identifier which differentiates between the agents.
+            subdir (str): Which subdirectory to write to.
+        """
+        # ensure the directory exists
+        path = pathlib.Path(__file__).parents[1] / "checkpoints" / subdir
+        path.mkdir(parents=True, exist_ok=True)
+
+        # save the actor and the critic.
+        torch.save(self.local.actor.state_dict(), path / f"agent_{index}_actor.pth")
+        torch.save(self.local.critic.state_dict(), path / f"agent_{index}_critic.pth")
