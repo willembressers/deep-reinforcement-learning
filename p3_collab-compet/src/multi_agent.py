@@ -71,3 +71,28 @@ class MultiAgent:
         for index, agent in enumerate(self.agents):
             agent.save(str(episode), index)
             agent.save("latest", index)
+
+    def step(
+        self,
+        state: ndarray,
+        actions: ndarray,
+        rewards: list,
+        next_state: ndarray,
+        dones: list,
+    ) -> None:
+        """Save experience in replay memory.
+
+        Args:
+            state (ndarray): _description_
+            actions (ndarray): _description_
+            rewards (list): _description_
+            next_state (ndarray): _description_
+            dones (list): _description_
+        """
+        for agent in self.agents:
+            agent.step(state, actions, rewards, next_state, dones)
+
+    def learn(self):
+        """Learn from memory."""
+        for agent in self.agents:
+            agent.learn()
