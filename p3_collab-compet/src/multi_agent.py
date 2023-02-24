@@ -5,6 +5,7 @@ import pathlib
 import torch
 from numpy import ndarray, zeros
 from src.agent import Agent
+from src.replay_buffer import ReplayBuffer
 
 
 class MultiAgent:
@@ -22,10 +23,6 @@ class MultiAgent:
         self.action_size: int = action_size
         self.num_agents: int = num_agents
 
-        # load the configuration from the config.ini file
-        self.config = configparser.ConfigParser()
-        self.config.read(pathlib.Path(__file__).parents[1] / "assets" / "config.ini")
-
         # Choose the fastest processor (in the hardware)
         device = torch.device("cpu")
         if torch.cuda.is_available():
@@ -35,10 +32,15 @@ class MultiAgent:
 
         # initialize the agents (add the to a tuple so the order is immutable)
         self.agents: tuple = ()
-        for _ in range(self.num_agents):
+        for index in range(self.num_agents):
             self.agents += (
-                Agent(state_size=state_size, action_size=action_size, device=device),
+                Agent(index, state_size, action_size, self.num_agents, device),
             )
+
+        # define the replay buffer
+        self.memory: ReplayBuffer = ReplayBuffer(
+            action_size, num_agents, state_size, device
+        )
 
     def act(self, state: ndarray, add_noise=True) -> ndarray:
         """Let the agents act on the given state.
@@ -74,25 +76,35 @@ class MultiAgent:
 
     def step(
         self,
-        state: ndarray,
+        states: ndarray,
         actions: ndarray,
         rewards: list,
-        next_state: ndarray,
+        next_states: ndarray,
         dones: list,
     ) -> None:
         """Save experience in replay memory.
 
         Args:
-            state (ndarray): _description_
+            states (ndarray): _description_
             actions (ndarray): _description_
             rewards (list): _description_
-            next_state (ndarray): _description_
+            next_states (ndarray): _description_
             dones (list): _description_
         """
-        for agent in self.agents:
-            agent.step(state, actions, rewards, next_state, dones)
+        self.memory.add(states, actions, rewards, next_states, dones)
 
     def learn(self):
         """Learn from memory."""
-        for agent in self.agents:
-            agent.learn()
+        if self.memory.sufficient():
+
+            # learn all agents
+            for agent in self.agents:
+
+                # learn 10 batches
+                for _ in range(10):
+
+                    # get a random experience batch from memory
+                    experiences = self.memory.sample()
+
+                    # learn the agents with the current batch
+                    agent.learn(self.agents, experiences)

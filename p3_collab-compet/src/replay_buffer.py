@@ -4,27 +4,38 @@ import pathlib
 import random
 from collections import deque, namedtuple
 
-from numpy import uint8, vstack
+import torch
+from numpy import array, hstack, uint8, vstack
 from torch import Tensor, from_numpy
 
 
 class ReplayBuffer:
     """Buffer to store experience."""
 
-    def __init__(self, action_size: int, batch_size: int, device) -> None:
+    def __init__(
+        self,
+        action_size: int,
+        num_agents: int,
+        state_size: int,
+        device,
+    ) -> None:
         """Initialize a ReplayBuffer object."""
-        self.action_size = action_size
+        self.num_agents: int = num_agents
+        self.state_size: int = state_size
+        self.action_size: int = action_size
 
         # load the configuration from the config.ini file
         config = configparser.ConfigParser()
         config.read(pathlib.Path(".") / "assets" / "config.ini")
-
         buffer_size: float = config.getint(
             "replay_buffer", "buffer_size", fallback=100000
         )
+        self.batch_size: int = config.getint(
+            "replay_buffer", "batch_size", fallback=128
+        )
+        self.seed = random.seed(config.getint("replay_buffer", "seed", fallback=1234))
 
         self.memory = deque(maxlen=buffer_size)
-        self.batch_size = batch_size
         self.experience = namedtuple(
             "Experience",
             field_names=["state", "action", "reward", "next_state", "done"],
@@ -41,12 +52,15 @@ class ReplayBuffer:
             next_states (_type_): _description_
             dones (_type_): _description_
         """
-        for i, _ in enumerate(states):
-            self.memory.append(
-                self.experience(
-                    states[i], actions[i], rewards[i], next_states[i], dones[i]
-                )
+        self.memory.append(
+            self.experience(
+                hstack(states),
+                hstack(actions),
+                array(rewards),
+                hstack(next_states),
+                array(dones),
             )
+        )
 
     def sample(self) -> tuple[Tensor, Tensor, Tensor, Tensor, Tensor]:
         """Randomly sample from memory."""
@@ -86,6 +100,10 @@ class ReplayBuffer:
 
         return (states, actions, rewards, next_states, dones)
 
-    def __len__(self) -> int:
-        """Return the current size of internal memory."""
-        return len(self.memory)
+    def sufficient(self) -> bool:
+        """Check if the current memory is large enough.
+
+        Returns:
+            bool: _description_
+        """
+        return len(self.memory) > self.batch_size

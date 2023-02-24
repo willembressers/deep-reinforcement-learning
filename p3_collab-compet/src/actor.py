@@ -2,6 +2,7 @@
 import configparser
 import pathlib
 
+from torch import manual_seed
 from torch.nn import BatchNorm1d, Linear, Module
 from torch.nn.init import calculate_gain, xavier_uniform_
 
@@ -22,10 +23,11 @@ class Actor(Module):
         self.action_size: int = action_size
 
         # load the configuration from the config.ini file
-        self.config = configparser.ConfigParser()
-        self.config.read(pathlib.Path(__file__).parents[1] / "assets" / "config.ini")
-        fc1_units: int = self.config.getint("actor", "fc1_units", fallback=256)
-        fc2_units: int = self.config.getint("actor", "fc2_units", fallback=128)
+        config = configparser.ConfigParser()
+        config.read(pathlib.Path(__file__).parents[1] / "assets" / "config.ini")
+        fc1_units: int = config.getint("actor", "fc1_units", fallback=256)
+        fc2_units: int = config.getint("actor", "fc2_units", fallback=128)
+        self.seed = manual_seed(config.getint("actor", "seed", fallback=1234))
 
         # initialize weight gains
         self.relu_gain = calculate_gain("relu")

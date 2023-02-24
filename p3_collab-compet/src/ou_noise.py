@@ -21,12 +21,12 @@ class OUNoise:
         # load the configuration from the config.ini file
         config = configparser.ConfigParser()
         config.read(pathlib.Path(".") / "assets" / "config.ini")
-
         self.mu: ndarray = config.getfloat("noise", "mu", fallback=0.0) * ones(
             action_size
         )
         self.theta: float = config.getfloat("noise", "theta", fallback=0.15)
         self.sigma: float = config.getfloat("noise", "sigma", fallback=0.2)
+        self.seed = random.seed(config.getint("noise", "seed", fallback=1234))
         self.reset()
 
     def reset(self) -> None:

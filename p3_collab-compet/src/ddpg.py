@@ -38,12 +38,12 @@ class DDPG:
 
         # load the configuration from the config.ini file
         self.dir_assets = pathlib.Path(__file__).parents[1] / "assets"
-        self.config = configparser.ConfigParser()
-        self.config.read(self.dir_assets / "config.ini")
+        config = configparser.ConfigParser()
+        config.read(self.dir_assets / "config.ini")
 
         # get the training configuration.
-        self.episodes: int = self.config.getint("ddpg", "episodes", fallback=100)
-        self.timesteps: int = self.config.getint("ddpg", "timesteps", fallback=100)
+        self.episodes: int = config.getint("ddpg", "episodes", fallback=100)
+        self.timesteps: int = config.getint("ddpg", "timesteps", fallback=100)
 
     def train(self) -> None:
         """Train the agents."""
@@ -60,8 +60,8 @@ class DDPG:
             # reset the environment
             env_info = self.env.reset(train_mode=True)[self.brain_name]
 
-            # get the current state
-            state = env_info.vector_observations
+            # get the current states
+            states = env_info.vector_observations
 
             # reset agent
             self.multi_agent.reset()
@@ -73,25 +73,21 @@ class DDPG:
             for timestep in range(self.timesteps):
 
                 # select an action (for each agent)
-                actions: ndarray = self.multi_agent.act(state, add_noise=True)
+                actions: ndarray = self.multi_agent.act(states, add_noise=True)
 
                 # send all actions to the environment
                 env_info = self.env.step(actions)[self.brain_name]
 
                 # get next states, rewards and done flags (for each agent)
-                next_state = env_info.vector_observations
+                next_states = env_info.vector_observations
                 rewards = env_info.rewards
                 dones = env_info.local_done
 
                 # save experience in replay memory
-                self.multi_agent.step(state, actions, rewards, next_state, dones)
+                self.multi_agent.step(states, actions, rewards, next_states, dones)
 
-                # update after 20 steps.
-                if timestep % 20 == 0:
-                    self.multi_agent.learn()
-
-                # set the next states as the current state
-                state = next_state
+                # set the next states as the current states
+                states = next_states
 
                 # accumulate rewards
                 scores += rewards
@@ -99,6 +95,9 @@ class DDPG:
                 # exit loop if episode finished
                 if any(dones):
                     break
+
+            # learn the agents
+            self.multi_agent.learn()
 
             # save most recent scores
             self.scores.append(scores)
@@ -139,7 +138,6 @@ class DDPG:
             scores (_type_): _description_
             window_size (int, optional): _description_. Defaults to 100.
         """
-
         # get the average scores
         avg_scores = array(scores).mean(axis=1)
         avg_scores_window = [
