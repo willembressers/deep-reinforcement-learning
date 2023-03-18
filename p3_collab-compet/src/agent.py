@@ -1,182 +1,171 @@
-"""This file contains the Agent class, which will interact with its environment."""
-import configparser
-import pathlib
-from types import SimpleNamespace
+# python core modules
+import random
+import types
 
+# 3rd party modules
+import numpy as np
 import torch
+import torch.nn.functional as F
 import torch.optim as optim
-from numpy import clip, ndarray
-from numpy.random import randn
+
+# custom modules
 from src.actor import Actor
 from src.critic import Critic
 from src.ou_noise import OUNoise
-from torch import Tensor, device, from_numpy, load, manual_seed, no_grad
-from torch.nn.functional import mse_loss
-from torch.nn.utils import clip_grad_norm_
+
+NOISE_REDUCTION_RATE = 0.99
+NOISE_START = 1.0
+NOISE_END = 0.1
+
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+# Choose the fastest processor (in the hardware)
+# device = torch.device("cpu")
+# if torch.cuda.is_available():
+#     device = torch.device("cuda:0")
+# elif torch.backends.mps.is_available() & torch.backends.mps.is_built():
+#     device = torch.device("mps")
 
 
 class Agent:
-    """An Agent will learn and interact with the environment."""
 
-    local: SimpleNamespace = SimpleNamespace()
-    target: SimpleNamespace = SimpleNamespace()
+    actor = types.SimpleNamespace()
+    critic = types.SimpleNamespace()
 
-    def __init__(
-        self,
-        index: int,
-        state_size: int,
-        action_size: int,
-        num_agents: int,
-        device: device,
-    ) -> None:
+    def __init__(self, config, state_size, action_size, num_agents):
         """Initialize the agent.
 
         Args:
-            index (int): _description_
-            state_size (int): _description_
-            action_size (int): _description_
-            num_agents (int): _description_
-            device (device): _description_
+            config (_type_): _description_
+            state_size (_type_): _description_
+            action_size (_type_): _description_
+            num_agents (_type_): _description_
         """
-        self.index: int = index
-        self.state_size: int = state_size
-        self.action_size: int = action_size
-        self.device: device = device
 
-        # load the configuration from the config.ini file
-        config = configparser.ConfigParser()
-        config.read(pathlib.Path(".") / "assets" / "config.ini")
-        self.gamma: float = config.getfloat("agent", "gamma", fallback=0.99)
-        self.tau: float = config.getfloat("agent", "tau", fallback=0.001)
-        self.lr_actor: float = config.getfloat("agent", "lr_actor", fallback=0.001)
-        self.lr_critic: float = config.getfloat("agent", "lr_critic", fallback=0.001)
-        self.weight_decay: int = config.getint("agent", "weight_decay", fallback=0)
+        # get the parameters
+        self.config = config
+        seed = config.getint("default", "seed", fallback=1234)
+        self.learn_episode = config.getint("default", "learn_episode", fallback=100)
 
-        # Initialize the local networks
-        self.local.actor: Actor = Actor(state_size, action_size).to(self.device)
-        self.local.critic: Critic = Critic(state_size, action_size, num_agents).to(
-            self.device
+        self.gamma = config.getfloat("agent", "gamma", fallback=0.99)
+        lr_actor = config.getfloat("agent", "lr_actor", fallback=0.0001)
+        lr_critic = config.getfloat("agent", "lr_critic", fallback=0.001)
+        weight_decay = config.getint("agent", "weight_decay", fallback=0)
+
+        # set the class variables
+        self.state_size = state_size
+        self.action_size = action_size
+        self.seed = random.seed(seed)
+
+        # Actor Network (w/ Target Network)
+        self.actor.local = Actor(config, state_size, action_size).to(device)
+        self.actor.target = Actor(config, state_size, action_size).to(device)
+        self.actor.optimizer = optim.Adam(self.actor.local.parameters(), lr=lr_actor)
+
+        # Critic Network (w/ Target Network)
+        self.critic.local = Critic(
+            config, state_size * num_agents, action_size * num_agents
+        ).to(device)
+        self.critic.target = Critic(
+            config, state_size * num_agents, action_size * num_agents
+        ).to(device)
+        self.critic.optimizer = optim.Adam(
+            self.critic.local.parameters(), lr=lr_critic, weight_decay=weight_decay
         )
 
-        # Initialize the target networks
-        self.target.actor: Actor = Actor(state_size, action_size).to(self.device)
-        self.target.critic: Critic = Critic(state_size, action_size, num_agents).to(
-            self.device
-        )
+        # set the states of the network
+        self.soft_update(self.critic.local, self.critic.target, 1)
+        self.soft_update(self.actor.local, self.actor.target, 1)
 
-        # define the optimizers (actor / critic)
-        self.local.actor_optimizer = optim.Adam(
-            self.local.actor.parameters(), lr=self.lr_actor
-        )
-        self.local.critic_optimizer = optim.Adam(
-            self.local.critic.parameters(),
-            lr=self.lr_critic,
-            weight_decay=self.weight_decay,
-        )
+        # Noise process
+        self.noise = OUNoise(config, action_size)
+        self.noise_reduction_ratio = NOISE_START
 
-        # Make some noise
-        self.noise: OUNoise = OUNoise(action_size)
-
-    def act(self, state: ndarray, add_noise=True) -> ndarray:
+    def act(self, state, episode=0, add_noise=True):
         """Act on the given state.
 
         Args:
-            state (ndarray): The current state of the environment.
+            state (_type_): _description_
+            episode (_type_): _description_
             add_noise (bool, optional): _description_. Defaults to True.
 
         Returns:
-            ndarray: a 2d (movement, jumping) array describing the action of the agent.
+            _type_: _description_
         """
-        # select a random action
-        action: ndarray = randn(self.action_size)
+        state = torch.from_numpy(state).float().to(device)
+        self.actor.local.eval()
+        with torch.no_grad():
+            action = self.actor.local(torch.unsqueeze(state, 0)).cpu().data.numpy()
+        self.actor.local.train()
+
+        if add_noise:
+            if episode > self.learn_episode and self.noise_reduction_ratio > NOISE_END:
+                self.noise_reduction_ratio = NOISE_REDUCTION_RATE ** (
+                    episode - self.learn_episode
+                )
+            action += self.noise_reduction_ratio * (
+                0.5 * np.random.standard_normal(self.action_size)
+            )
+
+        if add_noise:
+            action += self.noise.sample()
 
         # clip the actions are between -1 and 1
-        return clip(action, -1.0, 1.0)
+        return np.clip(action, -1.0, 1.0)
 
-    def reset(self) -> None:
+    def reset(self):
         """Reset the noise to mean (mu)."""
         self.noise.reset()
 
-    def save(self, subdir: str, index: int) -> None:
-        """Save the actor and critic networks.
+    def learn(self, experiences):
+        """learn from the given batch of experiences.
 
         Args:
-            index (int): An identifier which differentiates between the agents.
-            subdir (str): Which subdirectory to write to.
+            experiences (_type_): _description_
         """
-        # ensure the directory exists
-        path = pathlib.Path(__file__).parents[1] / "checkpoints" / subdir
-        path.mkdir(parents=True, exist_ok=True)
-
-        # save the actor and the critic.
-        torch.save(self.local.actor.state_dict(), path / f"agent_{index}_actor.pth")
-        torch.save(self.local.critic.state_dict(), path / f"agent_{index}_critic.pth")
-
-    def learn(self, agents, experiences):
-        """Learn, if enough samples are available in memory."""
-        # unstack the experience
         (
-            states_flat,
-            actions_flat,
-            rewards_flat,
-            next_states_flat,
-            dones_flat,
+            full_states,
+            actions,
+            actor_local_actions,
+            actor_target_actions,
+            agent_state,
+            agent_action,
+            agent_reward,
+            agent_done,
+            next_states,
+            next_full_states,
         ) = experiences
 
-        # get the number of agents
-        num_agents = len(agents)
-
-        # reshape the tensors
-        states = states_flat.reshape(-1, num_agents, self.state_size)
-        actions = actions_flat.reshape(-1, num_agents, self.action_size)
-        rewards = rewards_flat.reshape(-1, num_agents)
-        next_states = next_states_flat.reshape(-1, num_agents, self.state_size)
-        dones = torch.max(dones_flat, dim=1).values.reshape(-1, 1)
-
         # Get predicted next-state actions and Q values from target models
-        next_actions: tuple = ()
-        for index, agent in enumerate(agents):
-            next_state = next_states[:, index]
-            next_actions += (agent.target.actor(next_state),)
-        next_actions_flat = torch.cat(next_actions, dim=1)
-
-        # get the critic's opinion
-        Q_targets_next = self.target.critic(next_states_flat, next_actions_flat)
+        Q_targets_next = self.critic.target(next_full_states, actor_target_actions)
 
         # Compute Q targets for current states (y_i)
-        Q_targets = rewards[:, self.index].reshape(-1, 1) + (
-            self.gamma * Q_targets_next * (1 - dones)
-        )
+        Q_targets = agent_reward + (self.gamma * Q_targets_next * (1 - agent_done))
 
         # Compute critic loss
-        Q_expected = self.local.critic(states_flat, actions_flat)
-        critic_loss = mse_loss(Q_expected, Q_targets)
+        Q_expected = self.critic.local(full_states, actions)
+        critic_loss = F.mse_loss(Q_expected, Q_targets)
 
         # Minimize the loss
-        self.local.critic_optimizer.zero_grad()
+        self.critic.optimizer.zero_grad()
         critic_loss.backward()
-        clip_grad_norm_(self.local.critic.parameters(), 1)
-        self.local.critic_optimizer.step()
+        self.critic.optimizer.step()
 
         # Compute actor loss
-        pred_actions: tuple = ()
-        for index, agent in enumerate(agents):
-            state = states[:, index]
-            pred_actions += (agent.local.actor(state),)
-        pred_actions_flat = torch.cat(pred_actions, dim=1)
-        actor_loss = -self.local.critic(states_flat, pred_actions_flat).mean()
+        actor_loss = -self.critic.local(full_states, actor_local_actions).mean()
 
         # Minimize the loss
-        self.local.actor_optimizer.zero_grad()
+        self.actor.optimizer.zero_grad()
         actor_loss.backward()
-        self.local.actor_optimizer.step()
+        self.actor.optimizer.step()
 
-        # update target networks
-        self.soft_update(self.local.critic, self.target.critic)
-        self.soft_update(self.local.actor, self.target.actor)
+    def soft_update(self, local_model, target_model, tau):
+        """Update the network parameters.
 
-    def soft_update(self, local_model, target_model):
-        tau = self.tau
+        Args:
+            local_model (_type_): _description_
+            target_model (_type_): _description_
+            tau (_type_): _description_
+        """
         for target_param, local_param in zip(
             target_model.parameters(), local_model.parameters()
         ):

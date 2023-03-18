@@ -1,54 +1,66 @@
-"""This file contains the Actor class that is a NN that predicts actions based on the given state."""
-import configparser
-import pathlib
-
-from torch import manual_seed
-from torch.nn import BatchNorm1d, Linear, Module
-from torch.nn.init import calculate_gain, xavier_uniform_
+# 3rd party modules
+import torch
+import torch.nn as nn
 
 
-class Actor(Module):
-    """Actor (Policy) Model."""
-
-    def __init__(self, state_size: int, action_size: int) -> None:
-        """Initialize the actor.
+class Actor(nn.Module):
+    def __init__(self, config, state_size, action_size):
+        """Initialize the Actor network.
 
         Args:
-            state_size (int): Describes the size of the state space.
-            action_size (int): Describes the size of the action space.
+            config (_type_): _description_
+            state_size (_type_): _description_
+            action_size (_type_): _description_
         """
-        super().__init__()
+        super(Actor, self).__init__()
 
-        self.state_size: int = state_size
-        self.action_size: int = action_size
+        # get the parameters
+        seed = config.getint("default", "seed", fallback=1234)
+        fc1_units = config.getint("actor", "fc1_units", fallback=256)
+        fc2_units = config.getint("actor", "fc2_units", fallback=128)
 
-        # load the configuration from the config.ini file
-        config = configparser.ConfigParser()
-        config.read(pathlib.Path(__file__).parents[1] / "assets" / "config.ini")
-        fc1_units: int = config.getint("actor", "fc1_units", fallback=256)
-        fc2_units: int = config.getint("actor", "fc2_units", fallback=128)
-        self.seed = manual_seed(config.getint("actor", "seed", fallback=1234))
+        # set the class variables
+        self.seed = torch.manual_seed(seed)
 
-        # initialize weight gains
-        self.relu_gain = calculate_gain("relu")
-        self.tanh_gain = calculate_gain("tanh")
+        # fully connected layers
+        self.fc1 = nn.Linear(state_size, fc1_units)
+        self.fc2 = nn.Linear(fc1_units, fc2_units)
+        self.fc3 = nn.Linear(fc2_units, action_size)
 
-        # layers
-        self.fc1: Linear = Linear(state_size, fc1_units)
-        self.fc2: Linear = Linear(fc1_units, fc2_units)
-        self.fc3: Linear = Linear(fc2_units, action_size)
-        self.bn1: BatchNorm1d = BatchNorm1d(fc1_units)
+        # normalization layers
+        self.bn1 = nn.BatchNorm1d(fc1_units)
 
-        self.reset_parameters()
+        # initialize the weights
+        self._init_weights()
 
-    def reset_parameters(self) -> None:
-        """Reset the weight paramaters by uniformal distribution."""
-        xavier_uniform_(self.fc1.weight.data, self.relu_gain)
-        xavier_uniform_(self.fc2.weight.data, self.relu_gain)
-        xavier_uniform_(self.fc3.weight.data, self.tanh_gain)
+    def _init_weights(self):
+        """Reset the network weights."""
+        # initialize the weights of the fully connected layers
+        nn.init.xavier_uniform_(self.fc1.weight)
+        nn.init.xavier_uniform_(self.fc2.weight)
+        nn.init.uniform_(self.fc3.weight, -3e-3, 3e-3)
+
+        # initialize the biases of the fully connected layers to 0
+        nn.init.zeros_(self.fc1.bias)
+        nn.init.zeros_(self.fc2.bias)
+        nn.init.zeros_(self.fc3.bias)
 
     def forward(self, state):
-        """Forward pass that maps states -> actions."""
-        x = self.bn1(self.fc1(state)).relu()
-        x = self.fc2(x).relu()
-        return self.fc3(x).tanh()
+        """Do a forward pass throught the network.
+
+        Args:
+            state (_type_): _description_
+
+        Returns:
+            _type_: _description_
+        """
+
+        x = self.fc1(state)
+        x = nn.functional.relu(x)
+        x = self.bn1(x)
+        x = self.fc2(x)
+        x = nn.functional.relu(x)
+        x = self.fc3(x)
+        x = nn.functional.tanh(x)
+
+        return x

@@ -1,47 +1,46 @@
-"""Ornstein-Uhlenbeck process."""
-import configparser
+# python core modules
 import copy
-import pathlib
 import random
 
-from numpy import array, ndarray, ones
+# 3rd party modules
+import numpy as np
 
 
 class OUNoise:
-    """Ornstein-Uhlenbeck process."""
-
-    state = None
-
-    def __init__(self, action_size: int) -> None:
-        """Initialize parameters and noise process.
+    def __init__(self, config, action_size):
+        """Initialize the noise.
 
         Args:
-            action_size (int): Describes the size of the action space.
+            config (_type_): _description_
+            action_size (_type_): _description_
         """
-        # load the configuration from the config.ini file
-        config = configparser.ConfigParser()
-        config.read(pathlib.Path(".") / "assets" / "config.ini")
-        self.mu: ndarray = config.getfloat("noise", "mu", fallback=0.0) * ones(
-            action_size
-        )
-        self.theta: float = config.getfloat("noise", "theta", fallback=0.15)
-        self.sigma: float = config.getfloat("noise", "sigma", fallback=0.2)
-        self.seed = random.seed(config.getint("noise", "seed", fallback=1234))
-        self.reset()
+        # get the parameters
+        seed = config.getint("default", "seed", fallback=1234)
+        mu = config.getfloat("agent", "mu", fallback=0.0)
+        theta = config.getfloat("agent", "theta", fallback=0.15)
+        sigma = config.getfloat("agent", "sigma", fallback=0.1)
 
-    def reset(self) -> None:
-        """Reset the noise to mu."""
+        # set the class variables
+        self.mu = mu * np.ones(action_size)
+        self.theta = theta
+        self.sigma = sigma
+        self.seed = random.seed(seed)
+        self.reset()
+        self.action_size = action_size
+
+    def reset(self):
+        """Re-set the internal state."""
         self.state = copy.copy(self.mu)
 
-    def sample(self) -> ndarray:
-        """Add a delta (based on theta, mu, sigma) and add it to the noise.
+    def sample(self):
+        """Update the internal state.
 
         Returns:
-            ndarray: _description_
+            _type_: _description_
         """
-        x: ndarray = self.state
-        dx: ndarray = self.theta * (self.mu - x) + self.sigma * array(
-            [random.random() for i in range(len(x))]
+        x = self.state
+        dx = self.theta * (self.mu - x) + self.sigma * np.random.standard_normal(
+            self.action_size
         )
-        self.state: ndarray = x + dx
+        self.state = x + dx
         return self.state

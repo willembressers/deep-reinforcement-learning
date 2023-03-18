@@ -1,4 +1,6 @@
-import numpy as np
+import configparser
+import pathlib
+
 from src.ddpg import DDPG
 from src.multi_agent import MultiAgent
 from unityagents import UnityEnvironment
@@ -13,16 +15,20 @@ action_size = brain.vector_action_space_size
 states = env_info.vector_observations
 state_size = states.shape[1]
 
-# initialize the agent
-multi_agent: MultiAgent = MultiAgent(
-    state_size=state_size, action_size=action_size, num_agents=num_agents
+# load the configuration from the config.ini file
+config = configparser.ConfigParser()
+config.read(
+    pathlib.Path(__file__).parents[1] / "p3_collab-compet" / "assets" / "config.ini"
 )
 
-# initialize the DDPG
-ddpg: DDPG = DDPG(env, brain_name, multi_agent)
+# initialize the multi agent
+multi_agent = MultiAgent(config, state_size, action_size, num_agents)
 
-# train the agent
-scores = ddpg.train()
+# initialize the trainer
+ddpg = DDPG(config, num_agents, multi_agent)
+
+# start training
+ddpg.train(env, brain_name)
 
 # DONE
 env.close()

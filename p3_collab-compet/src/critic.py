@@ -1,59 +1,67 @@
-"""This file contains the Critic class that is a NN that predicts actions based on the given state."""
-import configparser
-import pathlib
-
-from torch import cat, manual_seed
-from torch.nn import BatchNorm1d, Linear, Module
-from torch.nn.init import calculate_gain, xavier_uniform_
+# 3rd party modules
+import torch
+import torch.nn as nn
 
 
-class Critic(Module):
-    """Critic (Value) Model."""
-
-    def __init__(self, state_size: int, action_size: int, num_agents: int) -> None:
-        """Initialize the critic.
+class Critic(nn.Module):
+    def __init__(self, config, full_state_size, actions_size):
+        """Initialize the Critic network.
 
         Args:
-            state_size (int): Describes the size of the state space.
-            action_size (int): Describes the size of the action space.
+            config (_type_): _description_
+            full_state_size (_type_): _description_
+            actions_size (_type_): _description_
         """
-        super().__init__()
+        super(Critic, self).__init__()
 
-        self.state_size: int = state_size
-        self.action_size: int = action_size
+        # get the parameters
+        seed = config.getint("default", "seed", fallback=1234)
+        fc1_units = config.getint("critic", "fc1_units", fallback=256)
+        fc2_units = config.getint("critic", "fc2_units", fallback=128)
 
-        # load the configuration from the config.ini file
-        config = configparser.ConfigParser()
-        config.read(pathlib.Path(__file__).parents[1] / "assets" / "config.ini")
-        fc1_units: int = config.getint("critic", "fc1_units", fallback=512)
-        fc2_units: int = config.getint("critic", "fc2_units", fallback=256)
-        fc3_units: int = config.getint("critic", "fc3_units", fallback=128)
-        self.seed = manual_seed(config.getint("critic", "seed", fallback=1234))
+        # set the class variables
+        self.seed = torch.manual_seed(seed)
 
-        # initialize weight gains
-        self.relu_gain = calculate_gain("relu")
-        self.linear_gain = calculate_gain("linear")
+        # fully connected layers
+        self.fc1 = nn.Linear(full_state_size, fc1_units)
+        self.fc2 = nn.Linear(fc1_units + actions_size, fc2_units)
+        self.fc3 = nn.Linear(fc2_units, 1)
 
-        # layers
-        self.fc1 = Linear(num_agents * state_size, fc1_units)
-        self.fc2 = Linear(fc1_units + (num_agents * action_size), fc2_units)
-        self.fc3 = Linear(fc2_units, fc3_units)
-        self.fc4 = Linear(fc3_units, 1)
-        self.bn1 = BatchNorm1d(fc1_units)
+        # normalization layers
+        self.bn1 = nn.BatchNorm1d(fc1_units)
 
-        self.reset_parameters()
+        # initialize the weights
+        self._init_weights()
 
-    def reset_parameters(self) -> None:
-        """Reset the weight paramaters by uniformal distribution."""
-        xavier_uniform_(self.fc1.weight.data, self.relu_gain)
-        xavier_uniform_(self.fc2.weight.data, self.relu_gain)
-        xavier_uniform_(self.fc3.weight.data, self.relu_gain)
-        xavier_uniform_(self.fc4.weight.data, self.linear_gain)
+    def _init_weights(self):
+        """Reset the network weights."""
+        # initialize the weights of the fully connected layers
+        nn.init.xavier_uniform_(self.fc1.weight)
+        nn.init.xavier_uniform_(self.fc2.weight)
+        nn.init.uniform_(self.fc3.weight, -3e-3, 3e-3)
+
+        # initialize the biases of the fully connected layers to 0
+        nn.init.zeros_(self.fc1.bias)
+        nn.init.zeros_(self.fc2.bias)
+        nn.init.zeros_(self.fc3.bias)
 
     def forward(self, state, action):
-        """Forward pass that maps (state, action) pairs -> Q-values."""
-        xs = self.bn1(self.fc1(state)).relu()
-        x = cat((xs, action), dim=1)
-        x = self.fc2(x).relu()
-        x = self.fc3(x).relu()
-        return self.fc4(x)
+        """Do a forward pass throught the network.
+
+        Args:
+            state (_type_): _description_
+            action (_type_): _description_
+
+        Returns:
+            _type_: _description_
+        """
+
+        x = self.fc1(state)
+        x = nn.functional.relu(x)
+        x = self.bn1(x)
+        x = torch.cat((x, action), dim=1)
+        x = self.fc2(x)
+        x = nn.functional.relu(x)
+        x = self.fc3(x)
+
+        return x

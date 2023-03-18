@@ -1,110 +1,194 @@
-"""This file contains the MultiAgent class that will control multiple agents."""
-import configparser
-import pathlib
-
+# 3rd party modules
+import numpy as np
 import torch
-from numpy import ndarray, zeros
+# custom modules
 from src.agent import Agent
 from src.replay_buffer import ReplayBuffer
 
+UPDATE_FREQ = 1
+
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+
 
 class MultiAgent:
-    """A multi agent will control multiple agents."""
-
-    def __init__(self, state_size: int, action_size: int, num_agents: int) -> None:
-        """Initialize the agent.
+    def __init__(self, config, state_size, action_size, num_agents):
+        """Initialize the multi-agent (and create agents).
 
         Args:
-            state_size (int): Describes the size of the state space.
-            action_size (int): Describes the size of the action space.
-            num_agents (int): Describes how many agents will participate.
+            config (_type_): _description_
+            state_size (_type_): _description_
+            action_size (_type_): _description_
+            num_agents (_type_): _description_
         """
-        self.state_size: int = state_size
-        self.action_size: int = action_size
-        self.num_agents: int = num_agents
 
-        # Choose the fastest processor (in the hardware)
-        device = torch.device("cpu")
-        if torch.cuda.is_available():
-            device = torch.device("cuda:0")
-        elif torch.backends.mps.is_available() & torch.backends.mps.is_built():
-            device = torch.device("mps")
+        # get the parameters
+        self.batch_size = config.getint("default", "batch_size", fallback=256)
+        self.learn_episode = config.getint("default", "learn_episode", fallback=100)
+        self.tau = config.getfloat("multi_agent", "tau", fallback=0.001)
+        self.repeat = config.getint("multi_agent", "repeat", fallback=100)
 
-        # initialize the agents (add the to a tuple so the order is immutable)
-        self.agents: tuple = ()
-        for index in range(self.num_agents):
-            self.agents += (
-                Agent(index, state_size, action_size, self.num_agents, device),
-            )
+        # creating agents and store them into agents list
+        self.agents = [
+            Agent(config, state_size, action_size, num_agents)
+            for i in range(num_agents)
+        ]
 
-        # define the replay buffer
-        self.memory: ReplayBuffer = ReplayBuffer(
-            action_size, num_agents, state_size, device
-        )
+        # Replay memory
+        self.memory = ReplayBuffer(config)
 
-    def act(self, state: ndarray, add_noise=True) -> ndarray:
-        """Let the agents act on the given state.
-
-        Args:
-            state (ndarray): The current state of the environment.
-            add_noise (bool, optional): The option to add noise. Defaults to True.
-
-        Returns:
-            ndarray: a matrix of (self.num_agents) rows and (self.action_size) columns.
-        """
-        # select an action (for each agent)
-        actions: ndarray = zeros((self.num_agents, self.action_size))
-        for index, agent in enumerate(self.agents):
-            actions[index] = agent.act(state, add_noise)
-
-        return actions
-
-    def reset(self) -> None:
-        """Reset all the agents."""
+    def reset(self):
+        """Reset the agents."""
         for agent in self.agents:
             agent.reset()
 
-    def save(self, episode: int) -> None:
-        """Save the models.
+    def act(self, state, episode=0, add_noise=True):
+        """Let the agents decide which action to take.
 
         Args:
-            episode (str): The episode will be used as subdirectory.
-        """
-        for index, agent in enumerate(self.agents):
-            agent.save(str(episode), index)
-            agent.save("latest", index)
+            state (_type_): _description_
+            episode (_type_): _description_
+            add_noise (bool, optional): _description_. Defaults to True.
 
-    def step(
-        self,
-        states: ndarray,
-        actions: ndarray,
-        rewards: list,
-        next_states: ndarray,
-        dones: list,
-    ) -> None:
-        """Save experience in replay memory.
+        Returns:
+            _type_: _description_
+        """
+        # collect the chosen actions here
+        actions = []
+
+        # loop over the agents
+        for agent_state, agent in zip(state, self.agents):
+
+            # let the agent pick an action
+            action = agent.act(agent_state, episode, add_noise)
+            action = np.reshape(action, newshape=(-1))
+
+            # append it to the list
+            actions.append(action)
+
+        return np.stack(actions)
+
+    def step(self, episode, state, action, reward, next_state, done):
+        """Update the agents with the new information / situation.
 
         Args:
-            states (ndarray): _description_
-            actions (ndarray): _description_
-            rewards (list): _description_
-            next_states (ndarray): _description_
-            dones (list): _description_
+            episode (_type_): _description_
+            state (_type_): _description_
+            action (_type_): _description_
+            reward (_type_): _description_
+            next_state (_type_): _description_
+            done (function): _description_
         """
-        self.memory.add(states, actions, rewards, next_states, dones)
+        # reshape the states
+        full_state = np.reshape(state, newshape=(-1))
+        next_full_state = np.reshape(next_state, newshape=(-1))
 
-    def learn(self):
-        """Learn from memory."""
-        if self.memory.sufficient():
+        # store the new information / situation in memory
+        self.memory.add(
+            state, full_state, action, reward, next_state, next_full_state, done
+        )
 
-            # learn all agents
-            for agent in self.agents:
+        # if there is sufficient memory
+        if len(self.memory) > self.batch_size and episode > self.learn_episode:
+            for _ in range(self.repeat):
 
-                # learn 10 batches
-                for _ in range(10):
+                # let the agents learn
+                for agent in self.agents:
+                    self.learn(agent)
 
-                    # get a random experience batch from memory
-                    experiences = self.memory.sample()
+                # update the agents
+                for agent in self.agents:
+                    agent.soft_update(agent.actor.local, agent.actor.target, self.tau)
+                    agent.soft_update(agent.critic.local, agent.critic.target, self.tau)
 
-                    # learn the agents with the current batch
-                    agent.learn(self.agents, experiences)
+    def learn(self, agent):
+        """Let the given agent some time to learn.
+
+        Args:
+            agent (_type_): _description_
+        """
+        # grab a random batch of experiences
+        (
+            states,
+            full_states,
+            actions,
+            rewards,
+            next_states,
+            next_full_states,
+            dones,
+        ) = self.memory.sample()
+
+        # initialize (to zero) the actions of the target network
+        actions_target = torch.zeros(actions.shape, dtype=torch.float, device=device)
+
+        # let all target networks choose an action (given the current state)
+        for index, agent_i in enumerate(self.agents):
+
+            # get the id of the current agent
+            if agent == agent_i:
+                id = index
+
+            # forward pass to take some action
+            actions_target[:, index, :] = agent_i.actor.target(states[:, index])
+
+        # get the (state, action, reward, done) of the current agent
+        state = states[:, id, :]
+        action = actions[:, id, :]
+        reward = rewards[:, id].view(-1, 1)
+        done = dones[:, id].view(-1, 1)
+
+        # replace action of the specific agent with actor_local actions
+        actions_local = actions.clone()
+        actions_local[:, id, :] = agent.actor.local(state)
+
+        # flatt actions
+        actions = actions.view(self.batch_size, -1)
+        actions_target = actions_target.view(self.batch_size, -1)
+        actions_local = actions_local.view(self.batch_size, -1)
+
+        agent_experience = (
+            full_states,
+            actions,
+            actions_local,
+            actions_target,
+            state,
+            action,
+            reward,
+            done,
+            next_states,
+            next_full_states,
+        )
+
+        # pass it onn
+        agent.learn(agent_experience)
+
+    def save(self, path):
+        """Save the actor (and critic) networks on a specific location.
+
+        Args:
+            path (_type_): _description_
+        """
+
+        # loop over the agents
+        for idx, agent in enumerate(self.agents):
+
+            # save the actor
+            torch.save(agent.actor.local.state_dict(), path / f"actor_{idx}.pth")
+
+            # save the critic (no for, need when playing)
+            torch.save(agent.critic.local.state_dict(), path / f"critic_{idx}.pth")
+
+    def load(self, dir_root):
+        """Load the actor networks for all agents.
+
+        Args:
+            dir_root (_type_): _description_
+        """
+
+        # loop over the agents
+        for idx, agent in enumerate(self.agents):
+
+            # load the pytorch model
+            state_dict = torch.load(dir_root / "checkpoints" / f"actor_{idx}.pth")
+
+            # assign the weights
+            agent.actor.local.load_state_dict(state_dict)

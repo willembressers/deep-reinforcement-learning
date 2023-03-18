@@ -1,55 +1,57 @@
-"""Train the multi agent."""
-import configparser
+# python core modules
 import datetime
 import pathlib
+from collections import deque
 
-from matplotlib.pyplot import (
-    figure,
-    hlines,
-    legend,
-    plot,
-    savefig,
-    title,
-    xlabel,
-    ylabel,
-)
-from numpy import arange, array, mean, ndarray, zeros
+# 3rd party modules
+# import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+import plotly.express as px
+
+# custom modules
 from src.multi_agent import MultiAgent
 from tqdm import tqdm
 
 
 class DDPG:
-    """Train the multi agent using an Deep Determenistic Policy Gradient."""
+    def __init__(self, config, multi_agent, num_agents, dir_root):
+        """Initialize the Deep Deterministic Policy Gradient.
 
-    scores: list = []
+        Args:
+            config (_type_): _description_
+            state_size (_type_): _description_
+            action_size (_type_): _description_
+            num_agents (_type_): _description_
+        """
 
-    def __init__(self, env, brain_name, multi_agent: MultiAgent) -> None:
-        """Initialize the Deep Determenistic Policy Gradient class.
+        # get the parameters
+        self.episodes = config.getint("ddpg", "episodes", fallback=1000)
+        self.target_score = config.getfloat("ddpg", "target_score", fallback=0.5)
+        self.target_window = config.getint("ddpg", "target_window", fallback=100)
+
+        self.multi_agent = multi_agent
+
+        # set the class variables
+        self.num_agents = num_agents
+        self.dir_root = dir_root
+
+    def train(self, env, brain_name):
+        """Train the multi-agent on the given environment.
 
         Args:
             env (_type_): _description_
             brain_name (_type_): _description_
-            multi_agent (MultiAgent): _description_
         """
-        self.env = env
-        self.brain_name = brain_name
-        self.multi_agent: MultiAgent = multi_agent
-        self.num_agents: int = multi_agent.num_agents
 
-        # load the configuration from the config.ini file
-        self.dir_assets = pathlib.Path(__file__).parents[1] / "assets"
-        config = configparser.ConfigParser()
-        config.read(self.dir_assets / "config.ini")
+        # get the current timestamp
+        self.timestamp = datetime.datetime.now()
 
-        # get the training configuration.
-        self.episodes: int = config.getint("ddpg", "episodes", fallback=100)
-        self.timesteps: int = config.getint("ddpg", "timesteps", fallback=100)
+        # get the agent indexes (just for plotting)
+        index_agents = [f"agent-{i}" for i in range(self.num_agents)]
 
-    def train(self) -> None:
-        """Train the agents."""
-        # (re)set the variables
-        self.scores: list = []
-        self.timestamp: str = datetime.datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
+        target_episode = None
+        scores_history = []
 
         # setup a progress bar (with tqdm)
         progress_bar = tqdm(range(1, self.episodes + 1), desc="Training multi agent")
@@ -58,118 +60,155 @@ class DDPG:
         for episode in progress_bar:
 
             # reset the environment
-            env_info = self.env.reset(train_mode=True)[self.brain_name]
+            env_info = env.reset(train_mode=True)[brain_name]
 
-            # get the current states
-            states = env_info.vector_observations
+            # get the current state (for each agent)
+            state = env_info.vector_observations
 
-            # reset agent
+            # reset the multi_agent
             self.multi_agent.reset()
 
             # initialize the score (for each agent)
-            scores: ndarray = zeros(self.num_agents)
+            scores = np.zeros(self.num_agents)
 
-            # loop over all time steps
-            for timestep in range(self.timesteps):
+            # loop until done
+            while True:
 
-                # select an action (for each agent)
-                actions: ndarray = self.multi_agent.act(states, add_noise=True)
+                # let the multi_agent decide which actions to take
+                action = self.multi_agent.act(state, episode, add_noise=True)
 
-                # send all actions to the environment
-                env_info = self.env.step(actions)[self.brain_name]
+                # send all actions to tne environment
+                env_info = env.step(action)[brain_name]
 
                 # get next states, rewards and done flags (for each agent)
-                next_states = env_info.vector_observations
-                rewards = env_info.rewards
-                dones = env_info.local_done
+                next_state = env_info.vector_observations
+                reward = env_info.rewards
+                done = env_info.local_done
 
                 # save experience in replay memory
-                self.multi_agent.step(states, actions, rewards, next_states, dones)
+                self.multi_agent.step(episode, state, action, reward, next_state, done)
 
-                # set the next states as the current states
-                states = next_states
+                # set the next states as the current state
+                state = next_state
 
                 # accumulate rewards
-                scores += rewards
+                scores += reward
 
                 # exit loop if episode finished
-                if any(dones):
+                if np.any(done):
                     break
 
-            # learn the agents
-            self.multi_agent.learn()
+            # append the scores as a dict to the history
+            scores_history.append(
+                {index: score for index, score in zip(index_agents, scores.tolist())}
+            )
 
-            # save most recent scores
-            self.scores.append(scores)
+            # describe the avg score in the progress bar
+            progress_bar.set_description(f"Avg score: {np.mean(scores):.5f}")
 
-            # save (every 20th episode)
-            if episode % 20 == 0:
-                self.multi_agent.save(episode)
+            # when target adchieved >>> secure the model and generate a plot
+            if target_episode == None and np.mean(scores) >= self.target_score:
+                target_episode = episode
+                self.save_models(episode)
+                df = self.save_scores(scores_history)
+                self.plot(df, episode)
 
-        # generate the plots
-        self.plot_scores(self.scores)
-        self.plot_scores_avg(self.scores)
+            # every 100th episode >>>  secure the model and generate a plot
+            if episode % 100 == 0:
+                self.save_models(episode)
+                df = self.save_scores(scores_history)
+                self.plot(df, episode)
 
-    def plot_scores(self, scores) -> None:
-        """Plot the training history."""
-        figure()
-        plot(arange(len(scores)), scores)
-        title(f"{self.timestamp} | Training history")
-        ylabel("Score")
-        xlabel("Episode")
-        legend(
-            [f"Agent: {i}" for i in range(1, self.num_agents + 1)],
-            loc="center left",
-            bbox_to_anchor=(1, 0.5),
-        )
-        savefig(
-            self.dir_assets / "interim" / f"scores_{self.timestamp}.png",
-            format="png",
-            bbox_inches="tight",
-        )
-        savefig(
-            self.dir_assets / "scores_latest.png", format="png", bbox_inches="tight"
-        )
-
-    def plot_scores_avg(self, scores, window_size: int = 100) -> None:
-        """Plot the average training history.
+    def plot(self, df, episode):
+        """Generate a plotly (interactive) html file.
 
         Args:
-            scores (_type_): _description_
-            window_size (int, optional): _description_. Defaults to 100.
+            df (_type_): _description_
+            episode (_type_): _description_
+            target_episode (_type_): _description_
         """
-        # get the average scores
-        avg_scores = array(scores).mean(axis=1)
-        avg_scores_window = [
-            mean(avg_scores[max(0, i - window_size) : i + 1])
-            for i in range(len(avg_scores))
-        ]
+        # generate the plot
+        fig = px.line(
+            df,
+            x="episode",
+            y="score",
+            color="name",
+            title=f"Training history | {self.timestamp.strftime('%Y-%m-%d | %H:%M:%S')} | Episode: {episode}",
+        )
 
-        # plot the scores
-        figure()
-        plot(arange(1, len(scores) + 1), avg_scores, label="window = 1")
-        plot(
-            arange(1, len(scores) + 1),
-            avg_scores_window,
-            label=f"window = {window_size}",
+        # add the target (horizontal) line
+        fig.add_hline(
+            y=self.target_score, line_width=1, line_dash="dash", line_color="red"
         )
-        hlines(
-            y=0.5,
-            xmin=0,
-            xmax=self.episodes,
-            colors="red",
-            linestyles="dotted",
-            label="goal",
+
+        # add the target (vertical) episode line
+        target_episode = df.loc[
+            (df["name"] == "rolling-mean 100") & (df["score"] >= 0.5), "episode"
+        ].min()
+        if target_episode > 0:
+            fig.add_vline(
+                x=target_episode, line_width=2, line_dash="dash", line_color="blue"
+            )
+
+        # save plots (html)
+        fig.write_html(
+            self.dir_root
+            / "assets"
+            / "interim"
+            / f"scores_{self.timestamp.strftime('%Y-%m-%d-%H-%M-%S')}.html"
         )
-        title(f"{self.timestamp} | Training history | Average Score")
-        ylabel("Score")
-        xlabel("Episode")
-        legend()
-        savefig(
-            self.dir_assets / "interim" / f"scores_avg_{self.timestamp}.png",
-            format="png",
-            bbox_inches="tight",
+        fig.write_html(self.dir_root / "assets" / "scores.html")
+        fig.write_image(self.dir_root / "assets" / "scores.png")
+
+    def save_models(self, episode=0):
+        """Save the multi-agent (agents).
+
+        Args:
+            episode (int, optional): _description_. Defaults to 0.
+        """
+        # ensure the directory exists
+        interim_path = self.dir_root / "checkpoints" / "interim" / f"episode_{episode}"
+        interim_path.mkdir(parents=True, exist_ok=True)
+
+        # save the interim models
+        self.multi_agent.save(interim_path)
+
+        # save the latest models
+        self.multi_agent.save(self.dir_root / "checkpoints")
+
+    def save_scores(self, scores_history):
+        """Create and save a scores_history dataframe.
+
+        Args:
+            scores_history (_type_): _description_
+
+        Returns:
+            _type_: _description_
+        """
+        # construct a dataframe of all scores
+        df = pd.DataFrame(scores_history)
+
+        # add the mean & rolling_mean columns
+        df["mean"] = df.mean(axis=1)
+        df[f"rolling-mean {self.target_window}"] = (
+            df["mean"].rolling(self.target_window).mean()
         )
-        savefig(
-            self.dir_assets / "scores_avg_latest.png", format="png", bbox_inches="tight"
+
+        # reshape the dataframe
+        df = (
+            df.stack()
+            .reset_index()
+            .rename(columns={"level_0": "episode", "level_1": "name", 0: "score"})
         )
+
+        # backup the data
+        df.to_csv(
+            self.dir_root
+            / "data"
+            / "interim"
+            / f"scores_{self.timestamp.strftime('%Y-%m-%d-%H-%M-%S')}.csv",
+            index=False,
+        )
+        df.to_csv(self.dir_root / "data" / "scores.csv", index=False)
+
+        return df
