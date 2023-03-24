@@ -13,10 +13,6 @@ from src.actor import Actor
 from src.critic import Critic
 from src.ou_noise import OUNoise
 
-NOISE_REDUCTION_RATE = 0.99
-NOISE_START = 1.0
-NOISE_END = 0.1
-
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 # Choose the fastest processor (in the hardware)
 # device = torch.device("cpu")
@@ -50,6 +46,9 @@ class Agent:
         lr_actor = config.getfloat("agent", "lr_actor", fallback=0.0001)
         lr_critic = config.getfloat("agent", "lr_critic", fallback=0.001)
         weight_decay = config.getint("agent", "weight_decay", fallback=0)
+        self.reduction_rate = config.getfloat("agent", "reduction_rate", fallback=0.99)
+        self.reduction_ratio = config.getfloat("agent", "reduction_ratio", fallback=1.0)
+        self.reduction_end = config.getfloat("agent", "reduction_end", fallback=0.1)
 
         # set the class variables
         self.state_size = state_size
@@ -78,7 +77,6 @@ class Agent:
 
         # Noise process
         self.noise = OUNoise(config, action_size)
-        self.noise_reduction_ratio = NOISE_START
 
     def act(self, state, episode=0, add_noise=True):
         """Act on the given state.
@@ -98,11 +96,14 @@ class Agent:
         self.actor.local.train()
 
         if add_noise:
-            if episode > self.learn_episode and self.noise_reduction_ratio > NOISE_END:
-                self.noise_reduction_ratio = NOISE_REDUCTION_RATE ** (
+            if (
+                episode > self.learn_episode
+                and self.reduction_ratio > self.reduction_end
+            ):
+                self.reduction_ratio = self.reduction_rate ** (
                     episode - self.learn_episode
                 )
-            action += self.noise_reduction_ratio * (
+            action += self.reduction_ratio * (
                 0.5 * np.random.standard_normal(self.action_size)
             )
 

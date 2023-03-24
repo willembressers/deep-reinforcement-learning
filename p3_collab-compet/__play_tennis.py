@@ -1,3 +1,7 @@
+import configparser
+import os
+import pathlib
+
 import numpy as np
 from src.multi_agent import MultiAgent
 from unityagents import UnityEnvironment
@@ -12,10 +16,20 @@ action_size = brain.vector_action_space_size
 states = env_info.vector_observations
 state_size = states.shape[1]
 
+# get the path to the current directory
+dir_root = pathlib.Path(os.path.abspath(".")) / "p3_collab-compet"
+
+# load the configuration from the config.ini file
+config = configparser.ConfigParser()
+config.read(dir_root / "assets" / "config.ini")
+
 # initialize the agent
 multi_agent: MultiAgent = MultiAgent(
-    state_size=state_size, action_size=action_size, num_agents=num_agents
+    config=config, state_size=state_size, action_size=action_size, num_agents=num_agents
 )
+
+# Load the trained actor netwerk into it.
+multi_agent.load(dir_root)
 
 # play the game
 for i in range(1, 6):  # play game for 5 episodes
