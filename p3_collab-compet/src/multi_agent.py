@@ -158,7 +158,7 @@ class MultiAgent:
             next_full_states,
         )
 
-        # pass it onn
+        # pass it on
         agent.learn(agent_experience)
 
     def save(self, path):
