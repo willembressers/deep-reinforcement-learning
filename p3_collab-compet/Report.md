@@ -30,6 +30,15 @@ The multi agent adopts a centralized training and decentralized execution policy
 ## Neural network architecture
 Each agent contains an actor and critic network. The deep learning network architectures of both the actor an critic are quite similar. However the critic network is responsible for evaluating the quality of the actions taken by the actor network. Therefore the critic network needs to take both the current state and the action taken by the actor as inputs, in order to produce a scalar (linear) value as output. This value is an "quality" indicator of how good the Actor is performing.
 
+Both networks are fairly simple.
+
+|                    | Actor                         | Critic                               |
+| ------------------ | ----------------------------- | ------------------------------------ |
+| Input layer (fc1)  | (state_size) features (relu)  | (state_size) features (relu)         |
+| Hidden layer (fc2) | 256 features (relu)           | 256 + (actions_size) features (relu) |
+| Hidden layer (fc3) | 128 features(relu)            | 128 features (relu)                  |
+| Output layer       | (action_size) features (tanh) | 1 features (linear)                  |
+
 ### Hyperparameters
 If put the hyperparameters in 1 config file (`./assets/config.ini`). I found it conveniant to have all the parameters in 1 place and i can use them in multiple places.
 - **default**
@@ -77,11 +86,15 @@ This plot shows the mean scores for each agent (in blue and red), and the mean o
 
 It's a little hard to see (from the static plot = ./assets/scores.png), but i've surpassed the target score at episode **1119**. That's where the interactive plot (./assets/scores.html) is more helpfull.
 
+The ddpg code creates a snapshot at every 100 episodes and when the target score is adchieved. The snapshot consist of:
+- The agents scores so far. These are located in the subfolder `./data`.
+- The training history graph (in png and html). These are located in the subfolder `./assets`.
+- The checkpoints of the model. These are located in the subfolder `./checkpoints`.
 
 ## Future Work
-...
 - I've trained the model on my local hardware (i find it more conveniant). My hardware doesn't have an Nvidia GPU, so utilizing CUDA was a no-go, i've tried to setup Pytorch so that it uses my macbook M1 chip, but that didn't pan out. So eventually the training took place on the GPU, which took almost 1.5 day.
-
+- The multi agent now draws a random sample batch from the memory (replay buffer). I could improve here by using a weighted sampling. After heaving learned from a sample, i could keep track of the used samples and expand them with the reward. After some time i could prioritize the samples with lower rewards, and thus making less errors faster.
+- I would also experiment with different policiy strategies like, Proximal Policy Optimization.
 
 # Results
 Here is a video of running the entire notebook, if commented the training part out (it would be a long video otherwise). First you'll see the a match where the code takes random actions. Then the multi agent is loaded and it decides which action to take. You'll see that the multi agent first makes 2 mistakes (the ball goes out-off-bounds) but then it takes off and the next 3 matches are very stable (and boring if you'll ask me). Notice that the max score (in the notebook) averages around 2.65, which is consistent with the training graph.
